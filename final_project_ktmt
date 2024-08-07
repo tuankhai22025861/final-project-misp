@@ -1,0 +1,127 @@
+.eqv KEY_CODE 0xFFFF0004        # ASCII code from keyboard, 1 byte
+.eqv KEY_READY 0xFFFF0000       # =1 if has a new keycode ?
+.eqv SEVENSEG_LEFT 0xFFFF0011   # Address of left 7-segment LED
+.eqv SEVENSEG_RIGHT 0xFFFF0010  # Address of right 7-segment LED
+.eqv MASK_CAUSE_COUNTER 0x00000400  # Bit 10: Counter interrupt
+.eqv COUNTER 0xFFFF0013         # Time Counter
+.eqv DISPLAY_CODE 0xFFFF000C    # ASCII code to show, 1 byte
+.eqv DISPLAY_READY 0xFFFF0008   # =1 if the display is ready
+.data
+Mess: .asciiz "toc do go la: "
+bytehex: .byte 63, 6, 91, 79, 102, 109, 125, 7, 127, 111  # LED segments for digits 0-9
+n: .asciiz "\n"
+string_check: .asciiz "bo mon ky thuat may tinh"
+
+
+.text
+    li $k0, KEY_CODE
+    li $k1, KEY_READY
+    li $s0, DISPLAY_CODE
+    li $s1, DISPLAY_READY
+    li $s2, 0            # Count of correct letters
+    la $s3, string_check # Pointer to string_check
+    la $s4, bytehex      # Pointer to bytehex
+    li $s5, 10           # Divisor for LED display
+    li $s6, 0            # Count of interrupts
+    li $s7,0 		  # show led
+    la $a1,n
+    sb $a2,0($a1)
+#------------------------------
+#vong lap doi intterupt
+#------------------------------
+loop:   
+	
+	lw   	$t3, 0($k1)                 	#$t1 = [$k1] = KEY_READY              
+	bne  	$t3, $zero, Make_Keyboard_Intr	#Tao interrupt khi nhan duoc ky tu tu ban phim
+	addi	$v0, $0, 32
+	li	$a0, 25
+	syscall
+	nop
+	b 	loop				#So lenh trong 1 vong lap = 6 => cu lap 5 lan thi tao 1 counter interrupt
+	
+#------------------------------
+Make_Keyboard_Intr:
+ 	teqi	$t3, 1
+	b	loop				#Quay lai vong lap de cho doi su kien interrupt tiep theo
+	nop
+#-----------------------------
+
+#-----------------------------
+.ktext 0x80000180
+dis_int:li 	$t1, COUNTER 			#BUG: must disable with Time Counter
+	sb 	$zero, 0($t1)
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+#LAY GIA TRI CUA THANH GHI C0.cause DE KIEM TRA LOAI INTERRUPT
+get_Caus:mfc0 	$t1, $13 			#$t1 = Coproc0.cause 
+isCount: li 	$t2, MASK_CAUSE_COUNTER		#if Cause value confirm Counter..
+	 and 	$at, $t1,$t2
+	 bne 	$at,$t2, Key_Board_Intr
+#-----------------------------------------------------
+Count_Intr:
+addi $s6,$s6,1
+j en_int
+#----------------------------------------------------
+
+#----------------------------------------------------
+Key_Board_Intr:
+ReadKey: lw $t5, 0($k0) # $t5= [$k0] = KEY_CODE
+lb $t4,0($s3)
+beq $t4, $a2, Show_led
+beq $t4,$t5,Count
+addi $s3,$s3,1	
+j en_int
+#-----------------------------------------------------
+Count:
+addi $s2,$s2,1
+addi $s3,$s3,1
+beq $t4, $a2, Show_led	
+j en_int
+# ----------------------- Ket thuc xu ly ngat --------------------------------------
+en_int: 
+	li 	$t1, COUNTER
+	sb 	$t1, 0($t1)
+	mtc0 	$zero, $13 			#Must clear cause reg
+next_pc: mfc0 	$at, $14 			#$at <= Coproc0.$14 = Coproc0.epc
+	 addi 	$at, $at, 4 			#$at = $at + 4 (next instruction)
+	 mtc0 	$at, $14 			#Coproc0.$14 = Coproc0.epc <= $at
+return: eret 					#Return from exception
+#----------------------------------------------------------------------------------
+
+#---------------------------------------------------------------------------------
+Show_led: 
+Show_led_1:
+    div $s2, $s5            # Divide the count by 10
+    mflo $t5                # Get the quotient
+    add $t1, $s4, $t5       # Address the corresponding bytehex
+    lb $a0, 0($t1)          # Load the segment value for the quotient
+SHOW_7SEG_LEFT:
+    li $t0, SEVENSEG_LEFT
+    sb $a0, 0($t0)
+    nop
+Show_led_2:    
+    mfhi $t5                # Get the remainder
+    add $t1, $s4, $t5       # Address the corresponding bytehex
+    lb $a0, 0($t1)          # Load the segment value for the remainder
+SHOW_7SEG_RIGHT:
+    li $t0, SEVENSEG_RIGHT
+    sb $a0, 0($t0)
+    nop
+    j en_int
+End_Main:    
+nop 
+li $v0,4
+la $a0,Mess
+syscall
+
+mul $s6,$s6,25
+li $v0,1
+add $a0,$s6,$0
+syscall
+
+li $v0,10
+syscall
+#-------------------------------------------------------------------------------
+
+
+
+    
